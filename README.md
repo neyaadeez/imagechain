@@ -1,8 +1,8 @@
 # ImageChain
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Build Status](https://github.com/yourusername/imagechain/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/imagechain/actions)
-[![Docker Pulls](https://img.shields.io/docker/pulls/yourusername/imagechain)](https://hub.docker.com/r/yourusername/imagechain)
+[![Build Status](https://github.com/neyaadeez/imagechain/actions/workflows/ci.yml/badge.svg)](https://github.com/neyaadeez/imagechain/actions)
+[![Docker Pulls](https://img.shields.io/docker/pulls/neyaadeez/imagechain)](https://hub.docker.com/r/neyaadeez/imagechain)
 
 A high-performance Rust-based service for processing images and videos, generating cryptographic and perceptual hashes, and creating verifiable manifests. ImageChain provides a robust solution for media authentication, content verification, and similarity search.
 
@@ -151,7 +151,7 @@ Notes:
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/imagechain.git
+   git clone https://github.com/neyaadeez/imagechain.git
    cd imagechain
    ```
 
