@@ -30,7 +30,9 @@ pub async fn upload_file(
     let mut temp_path = None;
 
     // Process the multipart form data
-    while let Some(field) = multipart.next_field().await? {
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        AppError::UploadError(format!("Failed to read multipart field: {}", e))
+    })? {
         let name = field.name().unwrap_or("").to_string();
         
         if name == "file" {
@@ -48,8 +50,16 @@ pub async fn upload_file(
             let temp_file_path = std::env::temp_dir().join(&temp_file_name);
             
             let mut temp_file = File::create(&temp_file_path).await?;
-            let content = field.bytes().await?;
-            temp_file.write_all(&content).await?;
+            // Stream the field content to disk to avoid buffering the whole file in memory
+            let mut field_stream = field;
+            while let Some(chunk) = field_stream
+                .chunk()
+                .await
+                .map_err(|e| AppError::UploadError(format!("Failed to read file content: {}", e)))?
+            {
+                temp_file.write_all(&chunk).await?;
+            }
+            temp_file.flush().await?;
             
             file_name = Some(file_name_field);
             temp_path = Some(temp_file_path);
@@ -71,20 +81,27 @@ pub async fn upload_file(
     } else if ["mp4", "avi", "mov", "mkv", "webm"].contains(&extension.as_str()) {
         MediaType::Video
     } else {
-        return Err(AppError::UploadError("Unsupported file type".to_string()));
+        MediaType::Other
     };
     
     // Compute file hash
     let file_hash = hash::compute_file_hash(&temp_path)?;
     
     // Process based on media type
+    let new_file_name = temp_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
     let manifest = match media_type {
         MediaType::Image => {
             // Process image
             let img = image::open(&temp_path)?;
             let pdq_hash = hash::compute_pdq_hash(&img)?;
-            
+
             MediaManifest::new(
+                new_file_name,
                 &temp_path,
                 MediaType::Image,
                 file_hash,
@@ -97,6 +114,7 @@ pub async fn upload_file(
             // For now, just create a basic video manifest without frame extraction
             // In a full implementation, you'd extract frames here
             MediaManifest::new(
+                new_file_name,
                 &temp_path,
                 MediaType::Video,
                 file_hash,
@@ -105,10 +123,28 @@ pub async fn upload_file(
                 None,
             )?
         }
+        MediaType::Other => {
+            // Create a basic manifest for other file types
+            MediaManifest::new(
+                new_file_name,
+                &temp_path,
+                MediaType::Other,
+                file_hash,
+                None,
+                None,
+                None,
+            )?
+        }
     };
     
-    // Clean up temp file
-    let _ = std::fs::remove_file(&temp_path);
+    // Create uploads directory if it doesn't exist
+    let uploads_dir = std::env::current_dir()?.join("uploads");
+    tokio::fs::create_dir_all(&uploads_dir).await?;
+
+    // Move the file to the uploads directory
+    let new_file_name = manifest.file_name.clone();
+    let dest_path = uploads_dir.join(&new_file_name);
+    tokio::fs::rename(&temp_path, dest_path).await?;
     
     // In a real application, you'd save the manifest to a database
     

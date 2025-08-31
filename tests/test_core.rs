@@ -60,6 +60,7 @@ fn test_manifest_creation() {
     
     // Create a manifest
     let manifest = MediaManifest::new(
+        "test_file.txt".to_string(),
         file.path(),
         MediaType::Image,
         "test_hash".to_string(),

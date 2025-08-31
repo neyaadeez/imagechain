@@ -13,12 +13,14 @@ use std::{net::SocketAddr, path::PathBuf};
 use axum::{
     http::{header, Method},
     routing::get,
+    extract::DefaultBodyLimit,
     Router,
 };
 use dotenv::dotenv;
 use tower_http::{
     compression::CompressionLayer,
     cors::{Any, CorsLayer},
+    limit::RequestBodyLimitLayer,
     propagate_header::PropagateHeaderLayer,
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
     trace::TraceLayer,
@@ -56,7 +58,7 @@ fn parse_config() -> Config {
     let max_upload_size = std::env::var("MAX_UPLOAD_SIZE")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(100 * 1024 * 1024); // Default to 100MB
+        .unwrap_or(500 * 1024 * 1024); // Default to 500MB for video files
 
     Config {
         upload_dir,
@@ -83,6 +85,9 @@ async fn main() -> Result<()> {
     
     log::info!("Upload directory: {}", config.upload_dir.display());
     log::info!("Max upload size: {} bytes", config.max_upload_size);
+    
+    // Store max upload size before moving config
+    let max_upload_size = config.max_upload_size;
     
     // Initialize application state
     let state = AppState::with_config(config);
@@ -118,6 +123,8 @@ async fn main() -> Result<()> {
         .layer(PropagateHeaderLayer::new(header::HeaderName::from_static(
             "x-request-id",
         )))
+        .layer(DefaultBodyLimit::max(max_upload_size as usize))
+        .layer(RequestBodyLimitLayer::new(max_upload_size as usize))
         .layer(CompressionLayer::new());
     
     // Get the port from environment or use default

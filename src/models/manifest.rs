@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use log::{info, warn};
+use crate::error::Result;
 
 /// Represents the type of media file.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)] // <-- add PartialEq and Eq
@@ -8,6 +10,8 @@ pub enum MediaType {
     Image,
     /// Represents a video file.
     Video,
+    /// Represents any other file type.
+    Other,
 }
 
 
@@ -48,68 +52,102 @@ pub struct MediaManifest {
 impl MediaManifest {
     /// Creates a new `MediaManifest` from a file path and associated data.
     pub fn new<P: AsRef<Path>>(
+        file_name: String,
         file_path: P,
         media_type: MediaType,
-        sha3_hash: String,
+        sha3_256_hash: String,
         pdq_hash: Option<String>,
         frames: Option<Vec<FrameInfo>>,
-        _metadata: Option<serde_json::Value>,
-    ) -> Result<Self, std::io::Error> {
-        let metadata = std::fs::metadata(&file_path)?;
-        let file_name = file_path
-            .as_ref()
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown")
-            .to_string();
+        metadata: Option<serde_json::Value>,
+    ) -> Result<Self> {
+        let file_metadata = std::fs::metadata(file_path)?;
+        
+        // Handle creation time - fallback to modified time if creation time is not available
+        let created_at: chrono::DateTime<chrono::Utc> = file_metadata
+            .created()
+            .or_else(|_| file_metadata.modified())
+            .unwrap_or_else(|_| std::time::SystemTime::now())
+            .into();
+        
+        let modified_at: chrono::DateTime<chrono::Utc> = file_metadata.modified()?.into();
+        let file_size = file_metadata.len();
 
         Ok(Self {
             media_type,
             file_name,
-            file_size: metadata.len(),
-            created_at: metadata.created()
-                .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339())
-                .unwrap_or_else(|_| chrono::Utc::now().to_rfc3339()),
-            modified_at: metadata.modified()
-                .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339())
-                .unwrap_or_else(|_| chrono::Utc::now().to_rfc3339()),
-            sha3_256_hash: sha3_hash,
+            file_size,
+            created_at: created_at.to_rfc3339(),
+            modified_at: modified_at.to_rfc3339(),
+            sha3_256_hash,
             pdq_hash,
             frames,
-            metadata: serde_json::Value::Null,
+            metadata: metadata.unwrap_or(serde_json::Value::Null),
         })
     }
 
     /// Serializes the manifest to a pretty-printed JSON string.
-    pub fn to_json(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string_pretty(self)
+    pub fn to_json(&self) -> Result<String> {
+        Ok(serde_json::to_string_pretty(self)?)
     }
 
     /// Deserializes a `MediaManifest` from a JSON string.
-    pub fn from_json(json_str: &str) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(json_str)
+    pub fn from_json(json_str: &str) -> Result<Self> {
+        Ok(serde_json::from_str(json_str)?)
     }
 
     /// Verifies the integrity of a file against the manifest.
     ///
     /// This checks the file size and SHA3-256 hash.
-    pub fn verify(&self, file_path: &Path) -> Result<bool, Box<dyn std::error::Error>> {
-        // Verify file exists and has the same size
-        let metadata = std::fs::metadata(file_path)?;
+    pub fn verify<P: AsRef<Path>>(&self, file_path: P) -> Result<bool> {
+        let path = file_path.as_ref();
+        info!("Verifying file at path: {:?}", path);
+
+        if !path.exists() {
+            warn!("Verification failed: path does not exist.");
+            return Ok(false);
+        }
+
+        if !path.is_file() {
+            warn!("Verification failed: path is not a file.");
+            return Ok(false);
+        }
+
+        let metadata = std::fs::metadata(path)?;
         if metadata.len() != self.file_size {
+            warn!(
+                "Verification failed: size mismatch. Expected: {}, Found: {}",
+                self.file_size,
+                metadata.len()
+            );
             return Ok(false);
         }
 
-        // Verify hashes
-        let current_sha3 = crate::core::hash::compute_file_hash(file_path)?;
-        if current_sha3 != self.sha3_256_hash {
+        let file_hash = crate::core::hash::compute_file_hash(path)?;
+        if file_hash != self.sha3_256_hash {
+            warn!(
+                "Verification failed: SHA3 hash mismatch. Expected: {}, Found: {}",
+                self.sha3_256_hash,
+                file_hash
+            );
             return Ok(false);
         }
 
-        // For videos, we might want to verify frame hashes as well
-        // This is a simplified version - in a real implementation, you'd want to
-        // extract frames and verify their hashes
+        if self.media_type == MediaType::Image {
+            if let Some(pdq_hash) = &self.pdq_hash {
+                let img = image::open(path)?;
+                let computed_pdq_hash = crate::core::hash::compute_pdq_hash(&img)?;
+                if pdq_hash != &computed_pdq_hash {
+                    warn!(
+                        "Verification failed: PDQ hash mismatch. Expected: {}, Found: {}",
+                        pdq_hash,
+                        computed_pdq_hash
+                    );
+                    return Ok(false);
+                }
+            }
+        }
 
+        info!("Verification successful.");
         Ok(true)
     }
 }
@@ -117,28 +155,30 @@ impl MediaManifest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
-    use tempfile::NamedTempFile;
     use chrono::Utc;
 
     #[test]
-    fn test_manifest_creation() {
-        // Create a temporary file
-        let mut file = NamedTempFile::new().unwrap();
-        write!(file, "test content").unwrap();
-        
+    fn test_manifest_verification() {
+        // Create a temporary image file
+        let file = tempfile::Builder::new().suffix(".png").tempfile().unwrap();
+        let img = image::RgbImage::new(10, 10);
+        img.save(file.path()).unwrap();
+
+        let file_hash = crate::core::hash::compute_file_hash(file.path()).unwrap();
+        let pdq_hash = crate::core::hash::compute_pdq_hash(&image::open(file.path()).unwrap()).unwrap();
+
         let manifest = MediaManifest::new(
+            "test_image.png".to_string(),
             file.path(),
             MediaType::Image,
-            "test_hash".to_string(),
-            Some("pdq_hash".to_string()),
+            file_hash,
+            Some(pdq_hash),
             None,
             None,
         ).unwrap();
-        
-        assert_eq!(manifest.media_type, MediaType::Image);
-        assert_eq!(manifest.sha3_256_hash, "test_hash");
-        assert_eq!(manifest.pdq_hash, Some("pdq_hash".to_string()));
+
+        // Verification should pass
+        assert!(manifest.verify(file.path()).unwrap());
     }
     
     #[test]
