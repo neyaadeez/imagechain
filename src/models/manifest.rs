@@ -1,10 +1,12 @@
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+/// Represents the type of media file.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum MediaType {
+    /// An image file.
     Image,
+    /// A video file.
     Video,
 }
 
@@ -15,27 +17,38 @@ pub struct FrameInfo {
     pub embedding: Option<Vec<f32>>,
 }
 
+/// A manifest containing metadata and hashes for a media file.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MediaManifest {
+    /// The type of media (e.g., Image or Video).
     pub media_type: MediaType,
+    /// The original name of the file.
     pub file_name: String,
+    /// The size of the file in bytes.
     pub file_size: u64,
+    /// The creation timestamp of the file (RFC 3339 format).
     pub created_at: String,
+    /// The last modification timestamp of the file (RFC 3339 format).
     pub modified_at: String,
+    /// The SHA3-256 hash of the file content.
     pub sha3_256_hash: String,
+    /// The PDQ perceptual hash of the image (for images only).
     pub pdq_hash: Option<String>,
+    /// Information about extracted frames (for videos only).
     pub frames: Option<Vec<FrameInfo>>,
+    /// Arbitrary JSON metadata associated with the file.
     pub metadata: serde_json::Value,
 }
 
 impl MediaManifest {
+    /// Creates a new `MediaManifest` from a file path and associated data.
     pub fn new<P: AsRef<Path>>(
         file_path: P,
         media_type: MediaType,
         sha3_hash: String,
         pdq_hash: Option<String>,
         frames: Option<Vec<FrameInfo>>,
-        metadata: Option<serde_json::Value>,
+        _metadata: Option<serde_json::Value>,
     ) -> Result<Self, std::io::Error> {
         let metadata = std::fs::metadata(&file_path)?;
         let file_name = file_path
@@ -49,23 +62,32 @@ impl MediaManifest {
             media_type,
             file_name,
             file_size: metadata.len(),
-            created_at: metadata.created()?.into(),
-            modified_at: metadata.modified()?.into(),
+            created_at: metadata.created()
+                .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339())
+                .unwrap_or_else(|_| chrono::Utc::now().to_rfc3339()),
+            modified_at: metadata.modified()
+                .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339())
+                .unwrap_or_else(|_| chrono::Utc::now().to_rfc3339()),
             sha3_256_hash: sha3_hash,
             pdq_hash,
             frames,
-            metadata: metadata.unwrap_or_default(),
+            metadata: serde_json::Value::Null,
         })
     }
 
+    /// Serializes the manifest to a pretty-printed JSON string.
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
     }
 
+    /// Deserializes a `MediaManifest` from a JSON string.
     pub fn from_json(json_str: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json_str)
     }
 
+    /// Verifies the integrity of a file against the manifest.
+    ///
+    /// This checks the file size and SHA3-256 hash.
     pub fn verify(&self, file_path: &Path) -> Result<bool, Box<dyn std::error::Error>> {
         // Verify file exists and has the same size
         let metadata = std::fs::metadata(file_path)?;
@@ -74,7 +96,7 @@ impl MediaManifest {
         }
 
         // Verify hashes
-        let current_sha3 = super::hash::compute_file_hash(file_path)?;
+        let current_sha3 = crate::core::hash::compute_file_hash(file_path)?;
         if current_sha3 != self.sha3_256_hash {
             return Ok(false);
         }

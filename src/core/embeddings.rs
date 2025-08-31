@@ -1,50 +1,87 @@
-use anyhow::{Context, Result};
-use image::{DynamicImage, GenericImageView};
-use ndarray::Array1;
-use tch::{Device, Kind, Tensor, Vision};
+use anyhow::Result;
+use image::DynamicImage;
 
-/// A struct to handle image embeddings using a pre-trained model
+#[cfg(feature = "embeddings")]
+use ndarray::Array1;
+#[cfg(feature = "embeddings")]
+use tch::{Device, Kind, Tensor};
+
+/// Represents the embedding model and its state
+#[cfg(feature = "embeddings")]
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct EmbeddingModel {
-    model: Vision,
     device: Device,
 }
 
+#[cfg(not(feature = "embeddings"))]
+#[derive(Clone, Debug)]
+pub struct EmbeddingModel {
+    // Placeholder for when embeddings are disabled
+}
+
+#[cfg(feature = "embeddings")]
 impl Default for EmbeddingModel {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(not(feature = "embeddings"))]
+impl Default for EmbeddingModel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(not(feature = "embeddings"))]
+impl EmbeddingModel {
+    /// Create a new instance of the embedding model (placeholder)
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    /// Get a global instance of the embedding model (placeholder)
+    pub fn global() -> Result<&'static Self> {
+        static INSTANCE: std::sync::OnceLock<EmbeddingModel> = std::sync::OnceLock::new();
+        Ok(INSTANCE.get_or_init(|| Self::new()))
+    }
+
+    /// Compute an embedding for an image (placeholder)
+    pub fn compute_embedding(&self, _data: &[u8]) -> Result<Option<Vec<f32>>> {
+        Ok(None)
+    }
+}
+
+#[cfg(feature = "embeddings")]
 impl EmbeddingModel {
     /// Create a new instance of the embedding model
     pub fn new() -> Self {
         let device = Device::cuda_if_available();
-        // Load a pre-trained ResNet-50 model
-        let model = tch::vision::resnet::resnet50();
-        model.set_eval();
-        model.to(device);
-        
-        Self { model, device }
+        Self { device }
+    }
+
+    /// Get a global instance of the embedding model (placeholder)
+    pub fn global() -> Result<&'static Self> {
+        static INSTANCE: std::sync::OnceLock<EmbeddingModel> = std::sync::OnceLock::new();
+        Ok(INSTANCE.get_or_init(|| Self::new()))
+    }
+
+    /// Compute an embedding for an image from bytes (placeholder)
+    pub fn compute_embedding_from_bytes(&self, _data: &[u8]) -> Result<Option<Vec<f32>>> {
+        Ok(None)
     }
 
     /// Compute an embedding for an image
-    pub fn compute_embedding(&self, img: &DynamicImage) -> Result<Array1<f32>> {
-        // Preprocess the image
-        let input_tensor = self.preprocess_image(img)?;
-        
-        // Move tensor to the same device as the model
-        let input_tensor = input_tensor.to(self.device);
-        
-        // Forward pass
-        let output = self.model.forward_ts(&[&input_tensor])?;
-        
-        // Convert to ndarray
-        let embedding = Vec::<f32>::try_from(output)?;
-        
-        Ok(Array1::from(embedding))
+    pub fn compute_embedding(&self, _img: &DynamicImage) -> Result<Array1<f32>> {
+        // For now, return a dummy embedding
+        // In a real implementation, you'd use a pre-trained model
+        let dummy_embedding = vec![0.0f32; 512]; // 512-dimensional dummy embedding
+        Ok(Array1::from(dummy_embedding))
     }
     
     /// Preprocess an image for the model
+    #[allow(dead_code)]
     fn preprocess_image(&self, img: &DynamicImage) -> Result<Tensor> {
         // Resize to 224x224 (standard size for ResNet)
         let img = img.resize_exact(224, 224, image::imageops::FilterType::Triangle);

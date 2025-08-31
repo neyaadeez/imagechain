@@ -1,38 +1,43 @@
+# ========================
 # Build stage
-FROM rust:1.70-slim AS builder
+# ========================
+FROM rustlang/rust:nightly-slim AS builder
 
-# Install build dependencies
+# Install build dependencies (Rust, FFmpeg build tools, Python, Torch)
 RUN apt-get update && apt-get install -y \
+    build-essential \
+    clang \
+    libclang-dev \
     pkg-config \
     libssl-dev \
-    libavformat-dev \
-    libavcodec-dev \
-    libavutil-dev \
-    libswscale-dev \
-    libavdevice-dev \
+    cmake \
+    git \
+    perl \
+    nasm \
+    yasm \
     python3 \
     python3-pip \
-    && pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cpu \
+    && pip3 install --break-system-packages torch torchvision --index-url https://download.pytorch.org/whl/cpu \
     && rm -rf /var/lib/apt/lists/*
 
+# Set working directory
 WORKDIR /usr/src/imagechain
 
 # Copy the source code
 COPY . .
 
-# Build the application
+# Build the application (release mode)
 RUN cargo build --release
 
+# ========================
 # Runtime stage
+# ========================
 FROM debian:bullseye-slim
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     libssl1.1 \
-    libavformat58 \
-    libavcodec58 \
-    libavutil56 \
-    libswscale5 \
+    python3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user
@@ -43,11 +48,11 @@ WORKDIR /home/imagechain
 # Create uploads directory
 RUN mkdir -p uploads
 
-# Copy the binary from the builder stage
+# Copy the compiled binary from builder
 COPY --from=builder /usr/src/imagechain/target/release/imagechain .
 
-# Expose the port the app runs on
+# Expose the port
 EXPOSE 3000
 
-# Set the startup command
+# Start application
 CMD ["./imagechain"]

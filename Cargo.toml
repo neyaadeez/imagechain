@@ -3,30 +3,55 @@ name = "imagechain"
 version = "0.1.0"
 edition = "2021"
 description = "Image and video processing with cryptographic and perceptual hashing"
+license = "MIT"
+repository = "https://github.com/neyaadeez/imagechain"
+readme = "README.md"
+keywords = ["image", "video", "hashing", "embeddings", "ffmpeg"]
+categories = ["multimedia", "web-programming"]
+
+[features]
+default = ["full"]
+full = [
+    "api", 
+    "video", 
+    "embeddings", 
+    "hashing"
+]
+
+# Enable API server functionality
+api = ["axum", "tower-http", "tower", "web"]
+web = ["axum", "tower-http", "tower"]
+
+# Enable video processing
+video = ["ffmpeg-next"]
+
+# Enable deep learning embeddings
+embeddings = ["tch", "ndarray"]
+
+# Enable hashing functionality
+hashing = ["sha3", "hex", "pdqhash"]
 
 [dependencies]
 # Web server
-axum = { version = "0.7", features = ["multipart", "json"] }
+axum = { version = "0.7", features = ["multipart", "http1", "http2", "json"], optional = true }
+http = "0.2"
 tokio = { version = "1.0", features = ["full"] }
-tower-http = { version = "0.5.0", features = ["cors", "trace"] }
+tower = { version = "0.4", features = ["util"], optional = true }
+tower-http = { version = "0.5", features = ["cors", "trace", "fs", "compression-gzip", "propagate-header", "request-id"], optional = true }
 
 # Image processing
-image = { version = "0.24.0", features = ["jpeg", "png", "webp"] }
-imageproc = "0.24.0"
+image = { version = "0.24.7", features = ["jpeg", "png", "webp", "gif"] }
+imageproc = "0.23.0"
 
-# Deep learning for embeddings
-tch = { version = "0.13.0", features = ["download-libtorch"] }
-ndarray = "0.15.6"
-
-# Video processing
-ffmpeg-next = { version = "6.1", features = ["static"] }
+# Deep learning and video processing
+tch = { version = "0.10.0", optional = true }
+ndarray = { version = "0.15.6", optional = true }
+ffmpeg-next = { version = "6.1", features = ["build"], optional = true }
 
 # Hashing
-sha3 = "0.10.0"
-hex = "0.4.3"
-
-# PDQ hashing
-pdq-rs = "0.1.0"
+sha3 = { version = "0.10.8", optional = true }
+hex = { version = "0.4.3", optional = true }
+pdqhash = { version = "0.1.1", optional = true }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -34,7 +59,31 @@ serde_json = "1.0"
 
 # Utilities
 anyhow = "1.0"
-thiserror = "1.0"
-chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2.0"
 log = "0.4"
 env_logger = "0.10"
+dotenv = "0.15"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+tempfile = "3.3"
+bytes = "1.0"
+futures = "0.3"
+tokio-util = { version = "0.7", features = ["codec"] }
+tokio-stream = { version = "0.1", features = ["fs"] }
+mime_guess = "2.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Async runtime
+futures-util = { version = "0.3", features = ["std"] }  
+
+# Development dependencies
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+tokio-test = "0.4"
+assert_fs = "1.0"
+predicates = "3.1"
+serial_test = "3.2"
+
+[build-dependencies]
+built = { version = "0.8.0", features = ["chrono"] }
