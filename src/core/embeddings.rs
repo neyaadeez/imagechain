@@ -1,5 +1,6 @@
-use anyhow::Result;
-use image::DynamicImage;
+use anyhow::{Context, Result};
+use image::{DynamicImage, ImageOutputFormat};
+use std::io::Cursor;
 
 #[cfg(feature = "embeddings")]
 use ndarray::Array1;
@@ -25,6 +26,84 @@ impl Default for EmbeddingModel {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Compute an image embedding as an optional Vec<f32> for use in APIs.
+/// When the `embeddings` feature is enabled, this returns Some(vector);
+/// otherwise it returns None.
+#[cfg(feature = "embeddings")]
+pub async fn compute_image_embedding(img: &DynamicImage) -> Result<Option<Vec<f32>>> {
+    // Prefer external service if configured
+    if let Some(vec) = http_embedding(img).await? {
+        return Ok(Some(vec));
+    }
+    let model = EmbeddingModel::global()?;
+    let emb = model.compute_embedding(img)?; // ndarray::Array1<f32>
+    Ok(Some(emb.to_vec()))
+}
+
+#[cfg(not(feature = "embeddings"))]
+pub async fn compute_image_embedding(_img: &DynamicImage) -> Result<Option<Vec<f32>>> {
+    // Attempt external service even if embeddings feature is disabled
+    if let Some(vec) = http_embedding(_img).await? {
+        return Ok(Some(vec));
+    }
+    Ok(None)
+}
+
+/// Try to obtain an embedding by calling an external HTTP service.
+/// The service URL is read from the EMBEDDING_SERVICE_URL env var and
+/// is expected to expose a POST /embed endpoint accepting multipart "image".
+async fn http_embedding(img: &DynamicImage) -> Result<Option<Vec<f32>>> {
+    let base = match std::env::var("EMBEDDING_SERVICE_URL") {
+        Ok(v) if !v.trim().is_empty() => v,
+        _ => return Ok(None),
+    };
+
+    let url = format!("{}/embed", base.trim_end_matches('/'));
+
+    // Encode image to PNG
+    let mut buf: Vec<u8> = Vec::new();
+    let mut cursor = Cursor::new(&mut buf);
+    img.write_to(&mut cursor, ImageOutputFormat::Png)
+        .context("failed to encode image to PNG")?;
+
+    // Build multipart form
+    let part = reqwest::multipart::Part::bytes(buf)
+        .file_name("image.png")
+        .mime_str("image/png")
+        .context("failed to set mime type")?;
+    let form = reqwest::multipart::Form::new().part("image", part);
+
+    // Send request
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(url)
+        .multipart(form)
+        .send()
+        .await
+        .context("embedding service request failed")?;
+
+    if !resp.status().is_success() {
+        // Do not fail the whole pipeline; just skip embeddings
+        return Ok(None);
+    }
+
+    let v: serde_json::Value = resp
+        .json()
+        .await
+        .context("failed to parse embedding JSON")?;
+    let arr = match v.get("embedding").and_then(|e| e.as_array()) {
+        Some(a) => a,
+        None => return Ok(None),
+    };
+
+    let mut out = Vec::with_capacity(arr.len());
+    for n in arr {
+        let f = n.as_f64().unwrap_or(0.0) as f32;
+        out.push(f);
+    }
+    Ok(Some(out))
 }
 
 #[cfg(not(feature = "embeddings"))]

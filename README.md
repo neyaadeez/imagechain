@@ -12,7 +12,7 @@ A high-performance Rust-based service for processing images and videos, generati
 - **Video Processing**: Extract frames from videos at specified intervals
 - **Cryptographic Hashing**: SHA3-256 for file integrity verification
 - **Perceptual Hashing**: PDQ hashing for content-based image identification
-- **Deep Learning Embeddings**: Generate and compare image embeddings using ResNet-50
+- **Deep Learning Embeddings**: OpenCLIP EVA (default EVA02-L-14) via external Python service (GPU optional)
 - **Manifest Generation**: Create verifiable manifests for media files
 - **REST API**: Simple HTTP interface for integration
 
@@ -34,9 +34,9 @@ A high-performance Rust-based service for processing images and videos, generati
   - Content-based image identification
   
 - **Deep Learning**
-  - Image embeddings using ResNet-50
+  - Image embeddings via OpenCLIP/EVA models (default EVA02-L-14)
   - Cosine similarity for image comparison
-  - Extensible model architecture
+  - External Python FastAPI embedding service; configurable model/device
   
 - **Manifest System**
   - JSON-based manifest format
@@ -53,7 +53,7 @@ A high-performance Rust-based service for processing images and videos, generati
 
 - Rust (latest stable version)
 - FFmpeg (for video processing)
-- libtorch (for deep learning features)
+- Docker (optional, recommended to run full stack)
 - OpenSSL (for cryptographic operations)
 
 ## Usage Examples
@@ -140,6 +140,13 @@ docker-compose up -d
 # The API will be available at http://localhost:3000
 ```
 
+Notes:
+- The stack starts two services from `docker-compose.yml`:
+  - `imagechain` (Rust API) on http://localhost:3000
+  - `embedding` (Python OpenCLIP service) on http://localhost:8001
+- Default embedding model is EVA02-L-14 (pretrained: laion2b_s9b_b144k) on CPU.
+- GPU acceleration is available via the optional `embedding-gpu` service. See "Embedding Service" below.
+
 ### Building from Source
 
 1. Clone the repository:
@@ -176,6 +183,12 @@ Content-Type: multipart/form-data
 file: <media_file>
 ```
 
+Query parameters:
+- include_embeddings (bool, default: false) — include image/frame embeddings
+- extract_frames (bool, default: true; video only) — enable/disable frame extraction
+- frame_interval_secs (f64, default: 1.0; video only) — seconds between frames
+- max_frames (usize, optional; video only) — cap number of processed frames. If omitted, the full video is processed.
+
 **Response**
 ```json
 {
@@ -184,10 +197,40 @@ file: <media_file>
     "media_type": "Image",
     "file_name": "example.jpg",
     "file_size": 12345,
+    "created_at": "2023-01-01T00:00:00Z",
+    "modified_at": "2023-01-01T00:00:00Z",
     "sha3_256_hash": "a1b2c3...",
     "pdq_hash": "0000000000000000...",
-    "embedding": [0.1, 0.2, ...],
-    "created_at": "2023-01-01T00:00:00Z"
+    "frames": null,
+    "metadata": { "embedding": [0.1, 0.2, 0.3, "..."] }
+  }
+}
+```
+
+Example (video) with frames and optional embeddings:
+
+```json
+{
+  "success": true,
+  "data": {
+    "media_type": "Video",
+    "file_name": "video1.mp4",
+    "file_size": 13927646,
+    "created_at": "2025-08-31T06:59:48Z",
+    "modified_at": "2025-08-31T06:59:49Z",
+    "sha3_256_hash": "...",
+    "pdq_hash": null,
+    "frames": [
+      { "timestamp_secs": 0.0, "pdq_hash": "0101...", "embedding": [0.12, 0.03, "..."] },
+      { "timestamp_secs": 1.0, "pdq_hash": "1110...", "embedding": [0.11, 0.07, "..."] }
+    ],
+    "metadata": {
+      "frame_interval_secs": 1.0,
+      "frame_count": 2,
+      "max_frames": null,
+      "extracted_frames": true,
+      "original_extension": "mp4"
+    }
   }
 }
 ```
@@ -210,8 +253,7 @@ Content-Type: application/json
 {
   "success": true,
   "data": {
-    "is_valid": true,
-    "verification_time": "2023-01-01T00:00:01Z"
+    "is_valid": true
   }
 }
 ```
@@ -309,6 +351,13 @@ Example using `curl`:
 curl -X POST -F "file=@/path/to/your/image.jpg" http://localhost:3000/api/upload
 ```
 
+Example with query flags (video, 0.5s interval, cap at 100 frames, include embeddings):
+```bash
+curl -X POST \
+  -F "file=@/path/to/your/video.mp4" \
+  "http://localhost:3000/api/upload?extract_frames=true&frame_interval_secs=0.5&max_frames=100&include_embeddings=true"
+```
+
 #### Verify a Manifest
 
 ```http
@@ -349,6 +398,36 @@ Create a `.env` file in the project root to configure the application:
 ```env
 RUST_LOG=info
 UPLOAD_DIR=./uploads
+EMBEDDING_SERVICE_URL=http://localhost:8001
+
+# Embedding service (Python, OpenCLIP) defaults:
+# MODEL_NAME=EVA02-L-14
+# PRETRAINED=laion2b_s9b_b144k
+# DEVICE=cpu
+```
+
+## Embedding Service (OpenCLIP/EVA)
+
+ImageChain can call an external Python FastAPI service to compute image embeddings using OpenCLIP models.
+
+- Default model: `EVA02-L-14` with `laion2b_s9b_b144k`
+- Configure via environment variables on the Python service:
+  - `MODEL_NAME` (e.g., EVA02-L-14, ViT-B-32)
+  - `PRETRAINED` (e.g., laion2b_s9b_b144k)
+  - `DEVICE` (`cpu` or `cuda`)
+- Rust connects via `EMBEDDING_SERVICE_URL` (e.g., `http://embedding:8001` in Docker, or `http://localhost:8001` locally).
+
+Docker Compose services:
+- `embedding` (CPU): builds from `python_service/Dockerfile` and exposes port 8001.
+- `embedding-gpu` (CUDA, optional): builds from `python_service/Dockerfile.cuda`.
+  - Requires NVIDIA drivers and NVIDIA Container Toolkit.
+  - To enable, switch `imagechain.depends_on` to `embedding-gpu` and set `EMBEDDING_SERVICE_URL=http://embedding-gpu:8001`.
+
+Health check and model info:
+
+```bash
+curl http://localhost:8001/health
+curl http://localhost:8001/models
 ```
 
 ## Testing

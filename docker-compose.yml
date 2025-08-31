@@ -10,4 +10,42 @@ services:
     environment:
       - RUST_LOG=info
       - UPLOAD_DIR=/home/imagechain/uploads
+      - EMBEDDING_SERVICE_URL=http://embedding:8001
+    depends_on:
+      - embedding
+    restart: unless-stopped
+
+  embedding:
+    build:
+      context: .
+      dockerfile: python_service/Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - MODEL_NAME=EVA02-L-14
+      - PRETRAINED=laion2b_s9b_b144k
+      - DEVICE=cpu
+    restart: unless-stopped
+
+  # GPU-enabled embedding service (optional): use this instead of `embedding`
+  # Requires NVIDIA Container Toolkit and compatible drivers.
+  # Switch imagechain.depends_on to [embedding-gpu] and update EMBEDDING_SERVICE_URL
+  # to http://embedding-gpu:8001 if you enable this service.
+  embedding-gpu:
+    build:
+      context: .
+      dockerfile: python_service/Dockerfile.cuda
+    ports:
+      - "8001:8001"
+    environment:
+      - MODEL_NAME=EVA02-L-14
+      - PRETRAINED=laion2b_s9b_b144k
+      - DEVICE=cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    # For Compose V2, you can also use:
+    # gpus: all
     restart: unless-stopped

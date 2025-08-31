@@ -1,0 +1,9 @@
+fastapi==0.111.*
+uvicorn[standard]==0.30.*
+Pillow>=10.0
+numpy>=1.24
+open-clip-torch>=2.24
+# Install a torch build suitable for your system (CPU or CUDA)
+# For CPU-only: pip install torch --index-url https://download.pytorch.org/whl/cpu
+# For CUDA (example for 12.1): pip install torch --index-url https://download.pytorch.org/whl/cu121
+torch

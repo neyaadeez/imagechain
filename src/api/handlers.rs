@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Multipart, State},
+    extract::{Multipart, State, Query},
     response::IntoResponse,
     Json,
 };
@@ -14,6 +14,7 @@ use crate::{
     models::manifest::{MediaManifest, MediaType},
     AppState,
 };
+use serde::Deserialize;
 
 use super::responses::ApiResponse;
 
@@ -22,8 +23,27 @@ use super::responses::ApiResponse;
 /// This endpoint accepts multipart form data with a "file" field.
 /// It computes cryptographic and perceptual hashes for images and videos,
 /// and returns a `MediaManifest` upon success.
+#[derive(Debug, Deserialize, Default)]
+pub struct UploadParams {
+    pub include_embeddings: Option<bool>,
+    pub frame_interval_secs: Option<f64>,
+    pub max_frames: Option<usize>,
+    pub extract_frames: Option<bool>,
+}
+
+/// Upload endpoint: accepts multipart form with a `file` field and optional query params.
+///
+/// Query parameters:
+/// - `include_embeddings` (bool, default: false) — include image/frame embeddings.
+/// - `extract_frames` (bool, default: true; video only) — enable/disable frame extraction.
+/// - `frame_interval_secs` (f64, default: 1.0; video only) — seconds between frames.
+/// - `max_frames` (usize, optional; video only) — cap number of processed frames; if omitted, the full video is processed.
+///
+/// Returns a `MediaManifest` JSON with hashes, and optional embeddings
+/// (for videos, embeddings are per frame; for images, embedding is in `metadata.embedding`).
 pub async fn upload_file(
     State(_state): State<Arc<AppState>>,
+    Query(params): Query<UploadParams>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse> {
     let mut file_name = None;
@@ -94,11 +114,27 @@ pub async fn upload_file(
         .unwrap_or("unknown")
         .to_string();
 
+    // Resolve flags with defaults
+    let include_embeddings = params.include_embeddings.unwrap_or(false);
+    let frame_interval = params.frame_interval_secs.unwrap_or(1.0);
+    let frame_interval = if frame_interval > 0.0 { frame_interval } else { 1.0 };
+    let max_frames = params.max_frames;
+    let extract_frames_flag = params.extract_frames.unwrap_or(true);
+
     let manifest = match media_type {
         MediaType::Image => {
             // Process image
             let img = image::open(&temp_path)?;
             let pdq_hash = hash::compute_pdq_hash(&img)?;
+
+            // Optional embedding for image stored in metadata
+            let mut metadata: Option<serde_json::Value> = None;
+            if include_embeddings {
+                let embedding_opt = crate::core::embeddings::compute_image_embedding(&img).await?;
+                if let Some(embedding) = embedding_opt {
+                    metadata = Some(serde_json::json!({ "embedding": embedding }));
+                }
+            }
 
             MediaManifest::new(
                 new_file_name,
@@ -107,26 +143,40 @@ pub async fn upload_file(
                 file_hash,
                 Some(pdq_hash),
                 None,
-                None,
+                metadata,
             )?
         }
         MediaType::Video => {
-            // Extract frames (1 frame per second) and compute PDQ per frame
-            let frames_images = crate::core::video::extract_frames(&temp_path, 1.0)?;
-            let mut frames_info = Vec::with_capacity(frames_images.len());
-            for (i, img) in frames_images.iter().enumerate() {
-                let pdq = hash::compute_pdq_hash(img)?;
-                frames_info.push(crate::models::manifest::FrameInfo {
-                    timestamp_secs: i as f64,
-                    pdq_hash: pdq,
-                    embedding: None,
-                });
+            // Extract frames and compute PDQ per frame, with optional embeddings
+            let mut frames_info: Vec<crate::models::manifest::FrameInfo> = Vec::new();
+            if extract_frames_flag {
+                let mut frames_images = crate::core::video::extract_frames(&temp_path, frame_interval)?;
+                if let Some(limit) = max_frames {
+                    if frames_images.len() > limit {
+                        frames_images.truncate(limit);
+                    }
+                }
+                for (i, img) in frames_images.iter().enumerate() {
+                    let pdq = hash::compute_pdq_hash(img)?;
+                    let embedding = if include_embeddings {
+                        crate::core::embeddings::compute_image_embedding(img).await?
+                    } else {
+                        None
+                    };
+                    frames_info.push(crate::models::manifest::FrameInfo {
+                        timestamp_secs: (i as f64) * frame_interval,
+                        pdq_hash: pdq,
+                        embedding,
+                    });
+                }
             }
 
             // Include basic metadata
             let metadata = serde_json::json!({
-                "frame_interval_secs": 1.0,
+                "frame_interval_secs": frame_interval,
                 "frame_count": frames_info.len(),
+                "max_frames": max_frames,
+                "extracted_frames": extract_frames_flag,
                 "original_extension": std::path::Path::new(&file_name)
                     .extension()
                     .and_then(|s| s.to_str())

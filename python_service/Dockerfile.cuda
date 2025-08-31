@@ -1,0 +1,33 @@
+# GPU-enabled Python embedding service Dockerfile (CUDA)
+# Requires NVIDIA Container Toolkit on the host.
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-venv python3-pip \
+    build-essential \
+    libjpeg-dev zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY python_service/requirements.txt /app/requirements.txt
+
+# Install CUDA-enabled torch first, then remaining deps
+RUN python3 -m pip install --upgrade pip \
+    && python3 -m pip install torch --index-url https://download.pytorch.org/whl/cu121 \
+    && python3 -m pip install -r /app/requirements.txt
+
+COPY python_service /app/python_service
+
+EXPOSE 8001
+
+ENV MODEL_NAME=EVA02-L-14 \
+    PRETRAINED=laion2b_s9b_b144k \
+    DEVICE=cuda
+
+CMD ["uvicorn", "python_service.app:app", "--host", "0.0.0.0", "--port", "8001"]
