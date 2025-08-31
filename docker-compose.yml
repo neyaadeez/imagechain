@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  imagechain:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./uploads:/home/imagechain/uploads
+    environment:
+      - RUST_LOG=info
+      - UPLOAD_DIR=/home/imagechain/uploads
+    restart: unless-stopped
