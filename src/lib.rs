@@ -151,7 +151,7 @@ pub fn process_image<P: AsRef<std::path::Path>>(path: P) -> Result<MediaManifest
     
     // Read the file
     let data = std::fs::read(path)
-        .map_err(|e| error::AppError::Io(e))?;
+        .map_err(error::AppError::Io)?;
     
     // Compute hashes
     let sha3_hash = crate::core::hash::compute_sha3_256(&data)?;
@@ -208,7 +208,7 @@ pub fn process_video_file<P: AsRef<std::path::Path>>(path: P) -> Result<MediaMan
     
     // Read the file
     let data = std::fs::read(path)
-        .map_err(|e| error::AppError::Io(e))?;
+        .map_err(error::AppError::Io)?;
     
     // Compute hashes
     let sha3_hash = hash::compute_sha3_256(&data)?;

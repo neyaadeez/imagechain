@@ -46,6 +46,9 @@ jobs:
         toolchain: nightly
         profile: minimal
         override: true
+
+    - name: Install Clippy
+      run: rustup component add clippy --toolchain nightly      
     
     - name: Run tests
       run: cargo test -- --nocapture
@@ -54,10 +57,7 @@ jobs:
       run: cargo build --release
     
     - name: Run clippy
-      uses: actions-rs/cargo@v1
-      with:
-        command: clippy
-        args: -- -D warnings
+      run: cargo clippy -- -D warnings
 
   docker:
     name: Build and Push Docker Image

@@ -44,7 +44,7 @@ impl EmbeddingModel {
     /// Get a global instance of the embedding model (placeholder)
     pub fn global() -> Result<&'static Self> {
         static INSTANCE: std::sync::OnceLock<EmbeddingModel> = std::sync::OnceLock::new();
-        Ok(INSTANCE.get_or_init(|| Self::new()))
+        Ok(INSTANCE.get_or_init(Self::new))
     }
 
     /// Compute an embedding for an image (placeholder)
@@ -64,7 +64,7 @@ impl EmbeddingModel {
     /// Get a global instance of the embedding model (placeholder)
     pub fn global() -> Result<&'static Self> {
         static INSTANCE: std::sync::OnceLock<EmbeddingModel> = std::sync::OnceLock::new();
-        Ok(INSTANCE.get_or_init(|| Self::new()))
+        Ok(INSTANCE.get_or_init(Self::new))
     }
 
     /// Compute an embedding for an image from bytes (placeholder)
@@ -130,7 +130,7 @@ impl EmbeddingModel {
         let norm_b = b.dot(b).sqrt();
         
         if norm_a > 0.0 && norm_b > 0.0 {
-            (dot_product / (norm_a * norm_b)).min(1.0).max(-1.0)
+            (dot_product / (norm_a * norm_b)).clamp(-1.0, 1.0)
         } else {
             0.0
         }
