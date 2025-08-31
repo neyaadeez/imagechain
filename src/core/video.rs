@@ -54,20 +54,57 @@ impl FrameExtractor {
 
     #[cfg(feature = "video")]
     /// Extracts frames from the video at the specified interval
-    pub fn extract_frames<F>(&self, mut _callback: F) -> Result<()>
+    pub fn extract_frames<F>(&self, mut callback: F) -> Result<()>
     where
         F: FnMut(DynamicImage, f64) -> Result<()>,
     {
         // Check if FFmpeg is installed
         check_ffmpeg_installed()?;
         init_ffmpeg()?;
-        
+
         // Check if input file exists
         if !Path::new(&self.input_path).exists() {
             return Err(anyhow::anyhow!("Input file not found: {}", self.input_path));
         }
 
-        // Placeholder implementation - would need proper ffmpeg integration
+        // Create a temporary directory for extracted frames
+        let tmpdir = tempfile::tempdir()?;
+        let out_pattern = tmpdir.path().join("frame_%05d.png");
+
+        // Compute fps filter string (frames per second)
+        let interval = if self.interval_secs > 0.0 { self.interval_secs } else { 1.0 };
+        let fps = 1.0 / interval;
+        let vf_filter = format!("fps={}", fps);
+
+        // Run ffmpeg to extract frames
+        let status = Command::new("ffmpeg")
+            .arg("-hide_banner")
+            .arg("-loglevel").arg("error")
+            .arg("-i").arg(&self.input_path)
+            .arg("-vf").arg(vf_filter)
+            .arg("-vsync").arg("vfr")
+            .arg(out_pattern.to_string_lossy().to_string())
+            .status()
+            .map_err(|e| anyhow::anyhow!("Failed to spawn ffmpeg: {}", e))?;
+
+        if !status.success() {
+            return Err(anyhow::anyhow!("ffmpeg failed to extract frames"));
+        }
+
+        // Read extracted frames, sorted by name
+        let mut entries: Vec<_> = std::fs::read_dir(tmpdir.path())?
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.is_file())
+            .collect();
+        entries.sort();
+
+        for (i, frame_path) in entries.iter().enumerate() {
+            let img = image::open(frame_path)?;
+            let timestamp = (i as f64) * interval;
+            callback(img, timestamp)?;
+        }
+
         Ok(())
     }
 

@@ -111,16 +111,36 @@ pub async fn upload_file(
             )?
         }
         MediaType::Video => {
-            // For now, just create a basic video manifest without frame extraction
-            // In a full implementation, you'd extract frames here
+            // Extract frames (1 frame per second) and compute PDQ per frame
+            let frames_images = crate::core::video::extract_frames(&temp_path, 1.0)?;
+            let mut frames_info = Vec::with_capacity(frames_images.len());
+            for (i, img) in frames_images.iter().enumerate() {
+                let pdq = hash::compute_pdq_hash(img)?;
+                frames_info.push(crate::models::manifest::FrameInfo {
+                    timestamp_secs: i as f64,
+                    pdq_hash: pdq,
+                    embedding: None,
+                });
+            }
+
+            // Include basic metadata
+            let metadata = serde_json::json!({
+                "frame_interval_secs": 1.0,
+                "frame_count": frames_info.len(),
+                "original_extension": std::path::Path::new(&file_name)
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+            });
+
             MediaManifest::new(
                 new_file_name,
                 &temp_path,
                 MediaType::Video,
                 file_hash,
                 None, // No single PDQ hash for video
-                None, // No frames for now
-                None,
+                Some(frames_info),
+                Some(metadata),
             )?
         }
         MediaType::Other => {
