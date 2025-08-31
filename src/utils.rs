@@ -41,7 +41,6 @@ pub(crate) fn validate_file_extension(filename: &str, allowed_extensions: &[&str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
 
     #[test]
     fn test_normalize_path() {

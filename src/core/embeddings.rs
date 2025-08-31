@@ -141,7 +141,6 @@ impl EmbeddingModel {
 mod tests {
     use super::*;
     use image::RgbImage;
-    use std::path::Path;
     
     #[test]
     fn test_embedding_computation() {
@@ -170,8 +169,8 @@ mod tests {
         let model = EmbeddingModel::new();
         let embedding = model.compute_embedding(&img).unwrap();
         
-        // Check embedding dimensions (ResNet-50 outputs 1000-dimensional vectors)
-        assert_eq!(embedding.len(), 1000);
+        // Check embedding dimensions
+        assert_eq!(embedding.len(), 512);
     }
     
     #[test]

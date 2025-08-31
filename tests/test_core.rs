@@ -1,4 +1,3 @@
-use std::fs::File;
 use std::io::Write;
 use tempfile::NamedTempFile;
 
@@ -53,7 +52,6 @@ fn test_compute_pdq_hash() {
 #[test]
 fn test_manifest_creation() {
     use imagechain::models::manifest::{MediaManifest, MediaType};
-    use std::fs::File;
     use std::io::Write;
     
     // Create a temporary file

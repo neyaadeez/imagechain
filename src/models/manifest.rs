@@ -1,20 +1,24 @@
 use serde::{Deserialize, Serialize};
-use chrono::Utc;
 use std::path::Path;
 
 /// Represents the type of media file.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)] // <-- add PartialEq and Eq
 pub enum MediaType {
-    /// An image file.
+    /// Represents an image file.
     Image,
-    /// A video file.
+    /// Represents a video file.
     Video,
 }
 
+
+/// Contains information about a single frame extracted from a video.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FrameInfo {
+    /// The timestamp of the frame in seconds from the start of the video.
     pub timestamp_secs: f64,
+    /// The PDQ perceptual hash of the frame.
     pub pdq_hash: String,
+    /// The deep learning embedding of the frame, if available.
     pub embedding: Option<Vec<f32>>,
 }
 
@@ -115,6 +119,7 @@ mod tests {
     use super::*;
     use std::io::Write;
     use tempfile::NamedTempFile;
+    use chrono::Utc;
 
     #[test]
     fn test_manifest_creation() {

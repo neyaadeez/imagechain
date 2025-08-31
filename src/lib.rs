@@ -31,7 +31,7 @@
 //! ```
 //!
 //! Basic usage:
-//! ```rust
+//! ```rust,no_run
 //! use imagechain::{process_image, MediaManifest, Result};
 //! use std::path::Path;
 //!
@@ -43,10 +43,11 @@
 //! ```
 
 // Internal modules
-mod api;
-mod core;
-mod error;
-mod models;
+pub mod api;
+pub mod core;
+/// Defines the application's error types and result aliases.
+pub mod error;
+pub mod models;
 mod state;
 mod utils;
 

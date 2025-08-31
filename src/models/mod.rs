@@ -1,4 +1,5 @@
 //! Data models and schemas for the application
 
-pub(crate) mod manifest;
+/// Defines the `MediaManifest` and related data structures.
+pub mod manifest;
 
